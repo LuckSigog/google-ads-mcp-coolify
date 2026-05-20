@@ -6,14 +6,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git curl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Clona o servidor do gomarble e copia tudo pro /app
+# Clones the upstream MCP server and copies into /app
 RUN git clone https://github.com/gomarble-ai/google-ads-mcp-server.git /tmp/upstream \
     && cp -r /tmp/upstream/. /app/ \
     && rm -rf /tmp/upstream
 
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt \
+    && pip install --no-cache-dir "uvicorn[standard]"
 
-# Wrapper que troca stdio por HTTP (streamable-http)
+# Wrapper: HTTP transport + optional Bearer auth + env-var credentials bootstrap
 COPY entrypoint.py /app/entrypoint.py
 
 ENV PORT=8000

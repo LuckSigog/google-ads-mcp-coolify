@@ -45,6 +45,8 @@ Perfect for teams running self-hosted MCP infrastructure on platforms like **Coo
 
 - ✅ **Streamable HTTP transport** (MCP spec) — works with all modern MCP clients
 - ✅ **OAuth 2.0** with auto refresh — no manual token rotation
+- ✅ **Bearer token auth** built-in (`MCP_AUTH_TOKEN`) — endpoint never publicly accessible by default
+- ✅ **Env-var credentials** (`GOOGLE_ADS_CREDENTIALS_JSON`) — no File Mount required on Coolify
 - ✅ **Single subdomain deploy** — `https://google-ads-mcp.yourdomain.com/mcp`
 - ✅ **Multi-account / MCC support** via `GOOGLE_ADS_LOGIN_CUSTOMER_ID`
 - ✅ **Built on FastMCP** — fast, async, production-grade
@@ -98,8 +100,14 @@ The container does three things at startup:
 ```env
 GOOGLE_ADS_DEVELOPER_TOKEN=<your_developer_token>
 GOOGLE_ADS_AUTH_TYPE=oauth
-GOOGLE_ADS_CREDENTIALS_PATH=/app/credentials/credentials.json
 PORT=8000
+
+# Paste the full credentials.json content (single line is fine, JSON parser handles it)
+GOOGLE_ADS_CREDENTIALS_JSON={"token":"ya29...","refresh_token":"1//0h...","token_uri":"https://oauth2.googleapis.com/token","client_id":"...","client_secret":"...","scopes":["https://www.googleapis.com/auth/adwords"]}
+
+# Bearer token for endpoint auth (RECOMMENDED — without it, your endpoint is public)
+# Generate with: python3 -c 'import secrets; print(secrets.token_urlsafe(32))'
+MCP_AUTH_TOKEN=<long_random_string>
 
 # Optional — only if you use a Manager (MCC) account:
 # GOOGLE_ADS_LOGIN_CUSTOMER_ID=1234567890
@@ -107,7 +115,9 @@ PORT=8000
 
 > ⚠️ **Do not** set `NODE_ENV` or any unrelated env var — Coolify injects all env vars as build ARGs, which can break unrelated builds.
 
-### 4. Mount the OAuth credentials
+### 4. (Optional) Mount the OAuth credentials as a file
+
+You can skip this entirely if you set `GOOGLE_ADS_CREDENTIALS_JSON` above. Use a File Mount only if you prefer keeping the JSON out of env vars:
 
 **Coolify → Storages → + Add → File Mount**
 
@@ -198,9 +208,16 @@ A browser will open. Sign in with the Google account that has access to your Goo
 
 ### Claude Code (CLI)
 
+If you set `MCP_AUTH_TOKEN`:
+```bash
+claude mcp add --transport http google-ads https://google-ads-mcp.yourdomain.com/mcp \
+  --header "Authorization: Bearer YOUR_MCP_AUTH_TOKEN" --scope user
+claude mcp list
+```
+
+Without auth:
 ```bash
 claude mcp add --transport http google-ads https://google-ads-mcp.yourdomain.com/mcp --scope user
-claude mcp list
 ```
 
 Test it:
@@ -217,7 +234,10 @@ Add to your MCP servers config:
   "mcpServers": {
     "google-ads": {
       "type": "http",
-      "url": "https://google-ads-mcp.yourdomain.com/mcp"
+      "url": "https://google-ads-mcp.yourdomain.com/mcp",
+      "headers": {
+        "Authorization": "Bearer YOUR_MCP_AUTH_TOKEN"
+      }
     }
   }
 }
@@ -245,14 +265,22 @@ GAQL reference is exposed as an MCP resource: `gaql://reference`.
 
 ## Security notes
 
-The default deploy exposes the MCP endpoint to the public internet without authentication. **Anyone who guesses the URL can query your Google Ads data.** Recommended hardening:
+This wrapper ships with **built-in Bearer token auth** (`MCP_AUTH_TOKEN` env var). Set it and the endpoint requires `Authorization: Bearer <token>` on every request — no token, no access.
 
-- **Basic Auth** via Traefik middleware in Coolify (1-line label on the service).
-- **Bearer token check** in a reverse proxy or with a tiny FastAPI middleware in front of `entrypoint.py`.
-- **IP allowlist** at the Coolify/Cloudflare level if you connect from a fixed set of dev machines.
-- **Cloudflare Access / Tailscale / WireGuard** if you want SSO or zero-trust.
+Generate a strong token:
+```bash
+python3 -c 'import secrets; print(secrets.token_urlsafe(32))'
+# or:
+openssl rand -base64 32
+```
 
-PRs adding optional `MCP_AUTH_TOKEN` header validation are welcome.
+For team deployments, additional hardening worth considering:
+
+- **Per-user tokens with revocation** — back the middleware with a Supabase/Postgres table of token hashes (planned in a future release; PRs welcome)
+- **Cloudflare Access / Tailscale / WireGuard** — zero-trust SSO in front of the endpoint
+- **IP allowlist** at the Coolify/Cloudflare layer if connecting from a fixed set of machines
+
+Even with `MCP_AUTH_TOKEN`, treat the endpoint as a defense-in-depth boundary, not the only line of defense — rotate the token periodically.
 
 ---
 
