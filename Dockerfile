@@ -1,18 +1,27 @@
 FROM python:3.11-slim
 
+# Cache-bust: 2026-05-25-v25
+ARG CACHE_BUST=20260525
+
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git curl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Clones the upstream MCP server and copies into /app
-RUN git clone https://github.com/gomarble-ai/google-ads-mcp-server.git /tmp/upstream \
+# Clones the upstream MCP server and copies into /app.
+# Cache-busted by ARG above so this layer rebuilds when we want fresh upstream.
+RUN echo "cache-bust=$CACHE_BUST" \
+    && git clone https://github.com/gomarble-ai/google-ads-mcp-server.git /tmp/upstream \
     && cp -r /tmp/upstream/. /app/ \
     && rm -rf /tmp/upstream
 
-# Patch hardcoded v19 (deprecated by Google) -> v25 (latest) in upstream files
-RUN sed -i 's|v19|v25|g' /app/server.py /app/oauth/google_auth.py
+# Patch hardcoded v19 (deprecated by Google) -> v25 (latest) in upstream files.
+# Verify the patch actually took effect at build time.
+RUN sed -i 's|v19|v25|g' /app/server.py /app/oauth/google_auth.py \
+    && echo "=== Verifying patch ===" \
+    && grep -n "v25\|v19" /app/server.py /app/oauth/google_auth.py || true \
+    && ! grep -q "v19" /app/server.py /app/oauth/google_auth.py
 
 RUN pip install --no-cache-dir -r requirements.txt \
     && pip install --no-cache-dir "uvicorn[standard]"
