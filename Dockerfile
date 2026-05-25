@@ -11,6 +11,9 @@ RUN git clone https://github.com/gomarble-ai/google-ads-mcp-server.git /tmp/upst
     && cp -r /tmp/upstream/. /app/ \
     && rm -rf /tmp/upstream
 
+# Patch hardcoded v19 (deprecated by Google) -> v20 in upstream files
+RUN sed -i 's|v19|v20|g' /app/server.py /app/oauth/google_auth.py
+
 RUN pip install --no-cache-dir -r requirements.txt \
     && pip install --no-cache-dir "uvicorn[standard]"
 
